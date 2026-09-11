@@ -40,6 +40,12 @@ dist:
 kill:
 	cd desktop && ./kill.sh
 
+# オンボーディングを最初から試すための初期化。アプリと監視プロセスを止めて
+# UserDefaults を消すと、次回起動で「Mihari へようこそ」から始まる。
+# --full で ~/.mihari(bridge 設定)も退避、--tcc で権限(TCC)もリセットを試みる。
+reset-onboarding:
+	./scripts/reset-onboarding.sh
+
 test: test-swift test-python
 
 test-swift:

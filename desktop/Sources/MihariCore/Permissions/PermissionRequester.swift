@@ -29,7 +29,7 @@ public enum PermissionRequester {
             return await requestMotion()
 
         case .automation:
-            return "オートメーションは対象アプリへ実際に命令を送った瞬間にしか聞かれない。システム設定から許可する"
+            return "オートメーションは対象アプリ(Music / Spotify)へ実際に命令を送った瞬間にしか聞かれない。システム設定から許可する"
         }
     }
 

@@ -39,8 +39,8 @@ public enum PermissionKind: String, Sendable, CaseIterable, Identifiable {
 
     /// 揃わないと始められない権限。macCamera ON のときの camera のみ。
     ///
-    /// automation は sermonTakeover ON でも「任意」に留める: 実際に Music へ命令を
-    /// 送る瞬間までプロンプトが出せず、必須にすると始められなくなるため。
+    /// automation は sermonTakeover ON でも「任意」に留める: 実際に Music / Spotify へ
+    /// 命令を送る瞬間までプロンプトが出せず、必須にすると始められなくなるため。
     public static func required(for settings: SafetySettings) -> [PermissionKind] {
         guard settings.isEnabled(.macCamera) else { return [] }
         return [.camera]
@@ -66,9 +66,9 @@ public enum PermissionKind: String, Sendable, CaseIterable, Identifiable {
     /// この権限が何に使われるか。ユーザーに見せる説明で、Info.plist の用途文字列と揃える。
     public var purpose: String {
         switch self {
-        case .camera: return "サボり検知時に証拠写真を 1 枚撮ります"
+        case .camera: return "サボりが確定したときに証拠写真を 1 枚撮ります"
         case .screenRecording: return "デバッグ画面から Mac のスクリーンショットを撮るときだけ使います"
-        case .automation: return "説教中に再生中の音楽を止めます"
+        case .automation: return "説教中に Music や Spotify の再生を止めます(どちらか一方の許可で足ります)"
         case .motion: return "AirPods の首振りを はい/いいえ として受け取ります"
         }
     }
@@ -78,7 +78,7 @@ public enum PermissionKind: String, Sendable, CaseIterable, Identifiable {
         switch self {
         case .camera: return "AVCaptureDevice.authorizationStatus(for: .video)"
         case .screenRecording: return "CGPreflightScreenCaptureAccess()"
-        case .automation: return "AEDeterminePermissionToAutomateTarget(com.apple.Music)"
+        case .automation: return "AEDeterminePermissionToAutomateTarget(com.apple.Music / com.spotify.client)"
         case .motion: return "CMHeadphoneMotionManager.authorizationStatus()"
         }
     }
@@ -104,10 +104,23 @@ public enum PermissionKind: String, Sendable, CaseIterable, Identifiable {
     /// 権限が下りていないときに、その権限に依存する機能がどう壊れるか。
     public var consequenceIfDenied: String {
         switch self {
-        case .camera: return "居眠りの証拠写真が撮れません"
+        case .camera: return "サボりの証拠写真が撮れません"
         case .screenRecording: return "Mac の画面を晒せません"
-        case .automation: return "音楽を止められません(オーバーレイは出ます)"
+        case .automation: return "Music / Spotify を止められません(オーバーレイは出ます)"
         case .motion: return "首振りで答えられません"
+        }
+    }
+
+    /// 未許可のときに行へ添える操作のヒント。ハマりやすい権限だけ持つ。
+    public var setupHint: String? {
+        switch self {
+        case .screenRecording:
+            return "許可後はアプリの再起動が必要"
+        case .automation:
+            return
+                "システム設定の Mihari の下で、Music か Spotify を ON にしてください。判定するにはそのアプリを起動した状態で再チェックが必要で、起動していないと許可済みでも灰色のままです。許可ダイアログはこの画面からは出せず、実際に止めようとした瞬間に出ます。"
+        case .camera, .motion:
+            return nil
         }
     }
 }

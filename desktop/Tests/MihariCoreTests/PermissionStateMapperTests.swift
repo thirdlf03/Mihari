@@ -50,6 +50,48 @@ struct PermissionStateMapperTests {
         #expect(PermissionStateMapper.fromAutomation(status: OSStatus(procNotFound)).grant == .undetermined)
     }
 
+    @Test("Music か Spotify のどちらかが許可ならオートメーションは許可")
+    func combinedAutomationEitherGranted() {
+        let granted = PermissionState(grant: .granted, detail: "noErr (許可)")
+        let denied = PermissionState(grant: .denied, detail: "errAEEventNotPermitted (拒否)")
+        let undetermined = PermissionState(
+            grant: .undetermined,
+            detail: "procNotFound (対象アプリが起動していない)"
+        )
+
+        #expect(PermissionStateMapper.combinedAutomation(music: granted, spotify: denied).grant == .granted)
+        #expect(PermissionStateMapper.combinedAutomation(music: denied, spotify: granted).grant == .granted)
+        #expect(PermissionStateMapper.combinedAutomation(music: undetermined, spotify: granted).grant == .granted)
+        #expect(PermissionStateMapper.combinedAutomation(music: granted, spotify: undetermined).grant == .granted)
+    }
+
+    @Test("Music と Spotify が両方拒否のときだけオートメーションは拒否")
+    func combinedAutomationDeniedOnlyWhenBothDenied() {
+        let denied = PermissionState(grant: .denied, detail: "errAEEventNotPermitted (拒否)")
+        let undetermined = PermissionState(
+            grant: .undetermined,
+            detail: "procNotFound (対象アプリが起動していない)"
+        )
+
+        #expect(PermissionStateMapper.combinedAutomation(music: denied, spotify: denied).grant == .denied)
+        #expect(PermissionStateMapper.combinedAutomation(music: denied, spotify: undetermined).grant == .undetermined)
+        #expect(
+            PermissionStateMapper.combinedAutomation(music: undetermined, spotify: undetermined).grant == .undetermined
+        )
+    }
+
+    @Test("まとめた詳細には Music と Spotify の両方が残る")
+    func combinedAutomationDetailKeepsBoth() {
+        let music = PermissionState(grant: .granted, detail: "noErr (許可)")
+        let spotify = PermissionState(
+            grant: .undetermined,
+            detail: "procNotFound (対象アプリが起動していない)"
+        )
+        let combined = PermissionStateMapper.combinedAutomation(music: music, spotify: spotify)
+        #expect(combined.detail.contains("Music=noErr (許可)"))
+        #expect(combined.detail.contains("Spotify=procNotFound (対象アプリが起動していない)"))
+    }
+
     @Test("翻訳結果には必ず生の値の説明が入る")
     func detailIsNeverEmpty() {
         #expect(!PermissionStateMapper.from(authorization: .authorized).detail.isEmpty)

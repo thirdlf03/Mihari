@@ -26,7 +26,7 @@ public struct StatusPanelSnapshot: Equatable, Sendable {
     /// いまのセーフティーモード。「カスタム(3/7)」、予約があれば
     /// 「カスタム(3/7)・変更予約 あと 21 時間」。
     public let modeText: String
-    /// iPhone を見張っているか(`.iphonePresence` が ON か)。OFF なら iPhone の行は「見ていない」。
+    /// iPhone を見張っているか(`.iphonePresence` が ON か)。OFF なら iPhone の行は「監視していない」。
     public let iphoneWatched: Bool
 
     /// 無操作バーの升目の数。
@@ -100,7 +100,7 @@ public struct StatusPanelSnapshot: Equatable, Sendable {
             thresholdText: "疑い \(Int(thresholds.suspectSeconds)) / 段ごと \(Int(thresholds.stageIntervalSeconds))",
             iphoneText: watched
                 ? (signals.map { iphoneText($0.iphone) } ?? placeholder)
-                : "見ていない",
+                : "監視していない",
             musicText: signals?.music.label ?? placeholder,
             frontmostAppText: signals.map { $0.frontmostApp ?? "不明" } ?? placeholder,
             attendanceText: signals.map { attendanceText(signals: $0, thresholds: thresholds) } ?? placeholder,

@@ -31,8 +31,9 @@ public enum PetMenuEntries {
         let pet = presenter.controller
         var entries: [PetMenuEntry] = [
             // 最上段はセーフティーモードの表示。押すと設定画面のセーフティータブへ直行する。
+            // 末尾の › で「タップで別の場(設定)へ飛ぶ項目」だと分かるようにする。
             .item(
-                title: actions.safetyStatusLine,
+                title: actions.safetyStatusLine + "  ›",
                 action: { actions.openSettings(tab: .safety) }
             ),
             .separator,

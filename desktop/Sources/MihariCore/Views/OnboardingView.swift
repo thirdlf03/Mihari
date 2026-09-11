@@ -5,29 +5,43 @@ import SwiftUI
 ///
 /// Mihari は本人の顔と画面を Discord に送るアプリなので、
 /// 「どの権限が何に使われるか」を最初に見せることを画面の役割の中心に置いている。
+///
+/// プロンプトの自動発火はしない。画面表示と同時に TCC ダイアログを連打すると
+/// 読む前に判断を迫ることになるため、「まとめて許可を求める」など明示操作でのみ要求する。
 public struct OnboardingView: View {
     @ObservedObject var model: PermissionsModel
     /// iPhone スクショに必要な tunneld の常駐状態。TCC の権限ではないが、
     /// 「最初に 1 回だけ承認する」という意味でこの画面に並べる。
     /// 解除(ON→OFF)は `AppCoordinator` がトグル購読で行うため、こちらで持たない。
     @ObservedObject var tunneld: TunneldModel
-    /// 「始める」を押したときの処理。必須権限が揃うまでボタンは押せない。
+    /// セーフティー設定。不足の必須権限を OFF にして進む逃げ道に使う。
+    /// 渡さなければ従来どおりゲートのみ(設定タブなど)。
+    private var safety: SafetySettingsStore?
+    /// 「始める」を押したときの処理。必須権限が揃うまでボタンは押せない(旧フロー用)。
     private let onStart: (() -> Void)?
+    /// 新フロー用の「次へ」。不足があっても「OFFにして進む」で先へ行ける。
+    private let onNext: (() -> Void)?
     /// 「閉じる」を押したときの処理。すでに見張っている状態で開き直したときに使う。
     private let onClose: (() -> Void)?
 
     /// - Parameters:
-    ///   - onStart: 渡すと「始める」ボタンを出す。必須権限が揃うまで押せない。
-    ///   - onClose: 渡すと「閉じる」ボタンを出す。`onStart` を渡したときはそちらが優先される。
+    ///   - onStart: 渡すと「始める」ボタンを出す。必須権限が揃うまで押せない(旧フロー)。
+    ///   - onNext: 渡すと「次へ」ボタンを出す。不足時は「OFFにして進む」も出す(新フロー)。
+    ///   - safety: 不足分を OFF にして進むために使う。新フロー・起動時フローで渡す。
+    ///   - onClose: 渡すと「閉じる」ボタンを出す。`onStart`/`onNext` を渡したときはそちらが優先される。
     public init(
         model: PermissionsModel,
         tunneld: TunneldModel,
+        safety: SafetySettingsStore? = nil,
         onStart: (() -> Void)? = nil,
+        onNext: (() -> Void)? = nil,
         onClose: (() -> Void)? = nil
     ) {
         self.model = model
         self.tunneld = tunneld
+        self.safety = safety
         self.onStart = onStart
+        self.onNext = onNext
         self.onClose = onClose
     }
 
@@ -39,7 +53,9 @@ public struct OnboardingView: View {
         .task {
             model.refresh()
             await tunneld.refresh()
-            await model.requestOnFirstLaunchIfNeeded()
+            // 初回でも自動でプロンプトを出さない。読む前に TCC ダイアログを連打すると
+            // 判断できないまま拒否されがちなので、明示操作でのみ要求する。
+            // (`PermissionsModel.requestOnFirstLaunchIfNeeded` は後方互換のため残す)
         }
         // システム設定で許可してから戻ってきたときに、押し直さなくても反映されるようにする。
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
@@ -71,6 +87,14 @@ public struct OnboardingView: View {
                 tunneldSection
             }
 
+            if model.settings.isEnabled(.discordExposure) {
+                // 設定ウィンドウの「権限」タブとして開いたときは「開始後に」が文脈に合わない。
+                // 同じウィンドウの隣にある Discord タブで今すぐ設定できるため、出さない。
+                if !isSettingsContext {
+                    discordNote
+                }
+            }
+
             if let message = model.lastMessage {
                 Text(message)
                     .font(.callout)
@@ -88,19 +112,59 @@ public struct OnboardingView: View {
 
     /// 画面を閉じて先へ進むためのボタン。呼び出し側が渡した処理に応じて出し分ける。
     @ViewBuilder private var footer: some View {
-        if let onStart {
-            HStack(spacing: 10) {
-                Button("始める", action: onStart)
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .disabled(!model.isRequiredSatisfied)
-
+        if let onNext {
+            // 新フロー: 不足があっても詰ませない。「OFFにして進む」の逃げ道を出す。
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) {
+                    Button("次へ", action: onNext)
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .disabled(!model.isRequiredSatisfied)
+                    Spacer()
+                }
                 if !model.isRequiredSatisfied {
                     Text("必須の権限が足りません: \(model.missingRequired.map(\.title).joined(separator: " / "))")
                         .font(.callout)
                         .foregroundStyle(.orange)
+                    Text("拒否したまま進めます。該当の機能を OFF にして先へ進み、あとから設定画面で変えられます。")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if safety != nil {
+                        Button("不足分の機能を OFF にして進む") {
+                            disableMissingFeatures()
+                            onNext()
+                        }
+                        .controlSize(.small)
+                    } else {
+                        Text("進むには「戻る」で機能を OFF にしてください。")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                Spacer()
+            }
+        } else if let onStart {
+            // 旧フロー(起動時の権限ウィンドウ): 同じ逃げ道を出す。
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) {
+                    Button("始める", action: onStart)
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .disabled(!model.isRequiredSatisfied)
+                    Spacer()
+                }
+                if !model.isRequiredSatisfied {
+                    Text("必須の権限が足りません: \(model.missingRequired.map(\.title).joined(separator: " / "))")
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                    if safety != nil {
+                        Button("不足分の機能を OFF にして始める") {
+                            disableMissingFeatures()
+                            onStart()
+                        }
+                        .controlSize(.small)
+                    }
+                }
             }
         } else if let onClose {
             HStack {
@@ -111,6 +175,29 @@ public struct OnboardingView: View {
         }
     }
 
+    /// 不足している必須権限に対応する機能を OFF にする。
+    ///
+    /// `PermissionKind.feature` からトグルを逆引きして OFF にする。
+    /// 拒否した権限で詰ませないための逃げ道。OFF 方向は常に即時なので安全側。
+    private func disableMissingFeatures() {
+        guard let safety else { return }
+        for kind in model.missingRequired {
+            guard let feature = kind.feature else { continue }
+            _ = safety.request(.disable(feature), isWatching: false)
+        }
+        model.apply(settings: safety.settings)
+        model.refresh()
+    }
+
+    /// 設定ウィンドウとして開いているときは、注記が「設定画面で登録」と自分自身を
+    /// 指す循環になるため、その場で登録できる旨に言い換える。
+    private var tunneldCaption: String {
+        if isSettingsContext {
+            return "iOS 17+ のスクショに必要なトンネルです。このまま「登録する…」で登録できます(管理者パスワードが 1 回だけ必要です)。"
+        }
+        return "iOS 17+ のスクショに必要なトンネルを OS に常駐させます。登録は管理者パスワードで 1 回だけです。スキップして後から設定画面で登録もできます。"
+    }
+
     /// iPhone スクショ(iOS 17+)に必要な tunneld の常駐を、この画面から登録できるようにする。
     /// tunneld は root でしか動かせないため、管理者パスワードダイアログを 1 回だけ出して
     /// launchd(LaunchDaemon)に任せる。以後は再起動しても自動で立ち上がる。
@@ -119,7 +206,7 @@ public struct OnboardingView: View {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("iPhone スクショの常駐(tunneld)").font(.headline)
-                    Text("iOS 17+ のスクショに必要なトンネルを OS に常駐させます。登録は管理者パスワードで 1 回だけです")
+                    Text(tunneldCaption)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -144,10 +231,30 @@ public struct OnboardingView: View {
         .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
     }
 
+    /// Discord を ON にした人への案内。Bot 設定はデーモン起動前にはできないため、
+    /// この画面では「後で設定画面から」の旨だけ伝える。
+    private var discordNote: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "info.circle.fill")
+                .foregroundStyle(Color.accentColor)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Discord の Bot 設定は開始後に")
+                    .font(.callout).bold()
+                Text("Bot トークンと投稿先チャンネルは、開始後に 設定… → Discord タブから設定します。今はスキップして大丈夫です(未設定の間は投稿されません)。")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+    }
+
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("権限の確認").font(.title2).bold()
-            Text("ステップ 1 で ON にした機能に必要な権限だけ確認します。")
+            Text("ON にした機能に必要な権限だけ確認します。許可を求めるのはボタンを押したときだけです。")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -167,20 +274,30 @@ public struct OnboardingView: View {
                     .keyboardShortcut("r", modifiers: .command)
                     .disabled(model.isRequesting)
 
+                Spacer()
+            }
+            // 最終チェック時刻と要約は 600 幅だと 1 行に収まらないので、ボタンの下の行に置く。
+            HStack(spacing: 12) {
                 if let at = model.lastCheckedAt {
                     Text("最終チェック: \(at.formatted(date: .omitted, time: .standard))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-
-                Spacer()
-
                 Text(summary)
                     .font(.callout)
                     .foregroundStyle(model.pending.isEmpty ? .green : .orange)
+                Spacer()
             }
             .padding(.top, 4)
         }
+    }
+
+    /// 設定ウィンドウの「権限」タブとして開いているか。
+    ///
+    /// `openSettings` は `onClose` だけを渡して開く。起動時の「始める」フロー
+    /// (`onStart`)やオンボーディングの権限ステップ(`onNext`)では false になる。
+    private var isSettingsContext: Bool {
+        onStart == nil && onNext == nil
     }
 
     /// ON にしている機能の名前を並べた 1 行。1 つも ON でなければ nil。
@@ -212,7 +329,7 @@ public struct OnboardingView: View {
                     "「画面収録」は事前照会の API が CGPreflightScreenCaptureAccess しかなく、未決定と拒否済みを区別できません。false のときは灰色で出ます。"
                 )
                 noteText(
-                    "「オートメーション」は対象アプリ(Music)が起動していないと判定できません。プロンプトは実際に命令を送った瞬間にだけ出ます。"
+                    "「オートメーション」は Music と Spotify を別々に照会し、どちらかが許可なら足ります。対象アプリが起動していないと判定できません。プロンプトは実際に命令を送った瞬間にだけ出ます。"
                 )
             }
         }

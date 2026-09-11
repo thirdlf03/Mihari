@@ -19,13 +19,18 @@ final class AuxiliaryWindows {
     ///
     /// 設定としての権限確認は設定ウィンドウの「権限」タブ側にある。こちらは初回導線専用で、
     /// 出す中身は「始める」ボタン付きの `OnboardingView` の 1 種類だけ。
+    /// オンボーディングと同じ 600×520 に固定する(`PermissionRow` はボタンを説明の下に
+    /// 右寄せで置く形なので、この幅でも収まる)。
     func showPermissions<Content: View>(@ViewBuilder content: () -> Content) {
         permissions = present(
             permissions,
             title: "権限の確認",
-            size: NSSize(width: 900, height: 640),
+            size: NSSize(width: 600, height: 520),
             content: content()
         )
+        permissions?.contentMinSize = NSSize(width: 600, height: 520)
+        permissions?.contentMaxSize = NSSize(width: 600, height: 520)
+        makeWizard(permissions)
     }
 
     /// 権限の確認画面を閉じる。出していなければ何もしない。
@@ -33,15 +38,20 @@ final class AuxiliaryWindows {
         permissions?.close()
     }
 
-    /// セーフティーのオンボーディング(モード選択 → 権限)を出す。
-    /// 既存の権限画面ウィンドウとは別に、design-54.md の 640×720 を持つ。
+    /// セーフティーのオンボーディング(ようこそ → コース → 権限 → 完了)を出す。
+    /// 既存の権限画面ウィンドウとは別枠。各ステップは ScrollView なので 600×520 に収める。
+    /// ウィザードなのでサイズは固定する。縦に手で伸ばすと空白ばかり見えて「長すぎる」
+    /// 見た目になるため、幅も高さも最初に決めた値に固定する。
     func showOnboarding<Content: View>(@ViewBuilder content: () -> Content) {
         onboarding = present(
             onboarding,
             title: "最初の設定",
-            size: NSSize(width: 640, height: 720),
+            size: NSSize(width: 600, height: 520),
             content: content()
         )
+        onboarding?.contentMinSize = NSSize(width: 600, height: 520)
+        onboarding?.contentMaxSize = NSSize(width: 600, height: 520)
+        makeWizard(onboarding)
     }
 
     /// セーフティーのオンボーディングを閉じる。出していなければ何もしない。
@@ -51,17 +61,18 @@ final class AuxiliaryWindows {
 
     /// 設定画面(セーフティー / Discord / 権限のタブ)を出す。
     ///
-    /// 幅は「権限」タブが一番要る。`PermissionRow` が説明の列に `minWidth: 260` を敷き、
-    /// その右に「許可を求める」「システム設定を開く」の 2 ボタンが固定幅で並ぶため、
-    /// 640(旧セーフティー設定)ではボタンが押し出される。720 なら 3 タブとも収まる。
-    /// 高さは、一番縦に長いセーフティーの旧 720 にタブバーぶんを足して 760 にする。
+    /// `PermissionRow` はボタンを説明の下に右寄せで置く形なので、横に幅を取らない。
+    /// オンボーディングと同じ 600×520 に固定して、どのウィンドウも同じ大きさに揃える。
+    /// 3 タブとも中身は自前の ScrollView を持つので、この高さで足りる。
     func showSettings<Content: View>(@ViewBuilder content: () -> Content) {
         settings = present(
             settings,
             title: "設定",
-            size: NSSize(width: 720, height: 760),
+            size: NSSize(width: 600, height: 520),
             content: content()
         )
+        settings?.contentMinSize = NSSize(width: 600, height: 520)
+        settings?.contentMaxSize = NSSize(width: 600, height: 520)
     }
 
     /// 設定画面を閉じる。出していなければ何もしない。
@@ -105,7 +116,13 @@ final class AuxiliaryWindows {
         content: Content
     ) -> NSWindow {
         let window = existing ?? makeWindow(title: title)
-        window.contentViewController = NSHostingController(rootView: content)
+        // 既定のままでは NSHostingController がビューの fitting サイズでウィンドウを
+        // 引き伸ばし、ここで決めた setContentSize や contentMin/MaxSize を無視して
+        // 縦に伸びる(600×520 のはずが 600×818 になる)。ウィザード系はサイズ固定なので
+        // 自動サイズ調整を無効化する。
+        let hosting = NSHostingController(rootView: content)
+        hosting.sizingOptions = []
+        window.contentViewController = hosting
         // 大きさと位置は最初に開いたときだけ決める。次からはユーザーが動かした場所を尊重する。
         if existing == nil {
             window.setContentSize(size)
@@ -115,6 +132,18 @@ final class AuxiliaryWindows {
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         return window
+    }
+
+    /// ウィザード(オンボーディング / 初回権限)を途中で × で閉じられないようにする。
+    ///
+    /// `begin()` 前はペットも右クリックメニューも無く、ウィンドウを閉じた瞬間に
+    /// そのセッションは何も操作できない状態になる(`AppCoordinator.handleReopen` も
+    /// `hasBegun == false` では何も出さない)。退避は各ステップの「戻る」か、どうしても
+    /// 抜けたいときの Cmd+Q(アプリ終了)に限定する。
+    private func makeWizard(_ window: NSWindow?) {
+        guard let window else { return }
+        window.styleMask.remove(.closable)
+        window.standardWindowButton(.closeButton)?.isHidden = true
     }
 
     private func makeWindow(title: String) -> NSWindow {

@@ -8,11 +8,23 @@ import Foundation
 /// オンボーディング画面を開いただけで許可ダイアログが出てしまうのを避けるため、必ず false で呼ぶ。
 public enum AutomationProbe {
 
-    /// 音楽の停止に使う既定のターゲット。
-    public static let musicBundleID = "com.apple.Music"
+    /// 音楽の停止に使うターゲット。Music と Spotify の両方を見る。
+    public static let musicBundleID = MediaPlayerKind.music.bundleID
+    public static let spotifyBundleID = MediaPlayerKind.spotify.bundleID
+
+    /// Music か Spotify のどちらかが許可されていれば許可とみなす。
+    ///
+    /// オートメーションは対象アプリごとに別権限なので、Spotify だけ許可して
+    /// Music が未許可でも、実際に止められる側があれば緑にする。
+    public static func status() -> PermissionState {
+        PermissionStateMapper.combinedAutomation(
+            music: status(forBundleID: musicBundleID),
+            spotify: status(forBundleID: spotifyBundleID)
+        )
+    }
 
     /// 指定したバンドル ID のアプリを操作する権限があるかを照会する。
-    public static func status(forBundleID bundleID: String = musicBundleID) -> PermissionState {
+    public static func status(forBundleID bundleID: String) -> PermissionState {
         guard let data = bundleID.data(using: .utf8) else {
             return PermissionState(grant: .undetermined, detail: "バンドル ID をエンコードできない")
         }

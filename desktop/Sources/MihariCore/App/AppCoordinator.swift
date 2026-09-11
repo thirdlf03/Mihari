@@ -147,6 +147,9 @@ public final class AppCoordinator: ObservableObject, PetMenuActions {
     ///
     /// 投稿を投げっぱなしにすると、直後の Cmd+Q / SIGTERM で接続ごと消えて投稿が飛ぶ。
     private var escapePostTask: Task<Void, Never>?
+    /// ON にした機能の事後処理を直列に流すための連鎖。複数の機能が同じタイミングで
+    /// ON になったとき(「全部 ON」など)に、権限要求と tunneld 登録が重ならないようにする。
+    private var featureEnableTask: Task<Void, Never>?
     /// 「逃げた」の投稿を待つ上限。ここまで待って返らなければ投稿を諦めて終了する。
     private static let escapePostTimeout: Duration = .seconds(10)
     /// quitLock の解除時刻などの保存先。
@@ -715,9 +718,29 @@ public final class AppCoordinator: ObservableObject, PetMenuActions {
     /// - Returns: AppKit に既定の処理(ウィンドウを開き直す)を続けさせるか。
     ///   見張り始めたあとはペットを出すだけで、ウィンドウは開かない。
     public func handleReopen() -> Bool {
-        guard hasBegun else { return true }
+        // まだ見張り始めていない(オンボーディング / 初回権限)ときは、出すべきウィンドウを
+        // 現在の状態から決め直す。ウィザード化で×は隠したが、クラッシュや強制終了・
+        // Dock 再クリックで取り残されないための復帰導線にする。
+        guard hasBegun else {
+            showPreBeginWindow()
+            return false
+        }
         pet.show()
         return false
+    }
+
+    /// まだ見張り始めていないときに、出すべき初回ウィンドウを決めて出す。
+    ///
+    /// `launch()` と同じ分岐。`hasCompletedModeSelection` を見るので、オンボーディングを
+    /// 途中で閉じても Dock 再クリックで復帰できる。
+    private func showPreBeginWindow() {
+        if !safety.hasCompletedModeSelection {
+            showOnboardingFlow()
+        } else if !permissions.isRequiredSatisfied {
+            showPermissionWindow()
+        } else {
+            begin()
+        }
     }
 
     /// 検証用の 10 タブ画面が要求されているか。
@@ -744,6 +767,7 @@ public final class AppCoordinator: ObservableObject, PetMenuActions {
             OnboardingView(
                 model: permissions,
                 tunneld: tunneld,
+                safety: safety,
                 onStart: { [weak self] in
                     guard let self else { return }
                     windows.closePermissions()
@@ -772,6 +796,11 @@ public final class AppCoordinator: ObservableObject, PetMenuActions {
                     safety.markModeSelectionCompleted()
                     windows.closeOnboarding()
                     begin()
+                },
+                onOpenDiscordSettings: { [weak self] in
+                    // 完了画面の「Discord を設定してから始める」。オンボーディングのまま
+                    // 設定ウィンドウを開いて、Discord タブに直行させる。
+                    self?.openSettings(tab: .discord)
                 }
             )
         }
@@ -901,7 +930,10 @@ public final class AppCoordinator: ObservableObject, PetMenuActions {
     /// 設定画面で ON にした機能の事後処理。オンボーディング側(`OnboardingFlowView`)
     /// にも同じ意味の動きがある。
     func handleFeatureEnabled(_ feature: SafetyFeature) {
-        Task {
+        let previous = featureEnableTask
+        featureEnableTask = Task { [previous] in
+            // 前の処理が終わってから次へ。許可ダイアログや管理者パスワードを 1 枚ずつにする。
+            await previous?.value
             await permissions.request(for: feature)
             guard feature == .iphoneScreenshot else { return }
             // すでに常駐していれば管理者パスワードダイアログは出さない。

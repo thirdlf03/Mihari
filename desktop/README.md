@@ -47,7 +47,7 @@ swift test
 | --- | --- | --- |
 | カメラ | サボり検知時に証拠写真を1枚撮る | `AVCaptureDevice.authorizationStatus(for: .video)` |
 | 画面収録 | デバッグ画面から Mac のスクリーンショットを撮るときだけ使う | `CGPreflightScreenCaptureAccess()` |
-| オートメーション | 説教中に再生中の音楽を止める | `AEDeterminePermissionToAutomateTarget(com.apple.Music)` |
+| オートメーション | 説教中に再生中の音楽を止める | `AEDeterminePermissionToAutomateTarget(com.apple.Music / com.spotify.client)` |
 | モーション | AirPods の首振りを はい/いいえ として受け取る | `CMHeadphoneMotionManager.authorizationStatus()` |
 
 **必須になる権限は ON にしたセーフティートグルから決まる**(全 OFF なら何も要求しない)。カメラは
@@ -71,7 +71,7 @@ swift test
 - **画面収録**は事前照会の API が `CGPreflightScreenCaptureAccess` しかなく、未決定と拒否済みを区別できない。
   false のときは赤ではなく灰色（未決定）で出る。また `CGRequestScreenCaptureAccess` のプロンプトは初回だけで、
   2 回目以降はシステム設定から許可してアプリを再起動する必要がある。
-- **オートメーション**は対象アプリ（Music）が起動していないと `procNotFound` になり判定できない。
+- **オートメーション**は Music と Spotify を別々に照会し、どちらかが許可なら足る。対象アプリが起動していないと `procNotFound` になり判定できない。
   プロンプトは実際に命令を送った瞬間にしか出ないので、この画面からは要求できない。
 - **モーション**は AirPods が接続されていないとプロンプトが出ないため、初回のまとめ要求からは外してある。
 

@@ -41,7 +41,7 @@ public struct EscapeDialogView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(
-                "「終了を始める」から 10 分後に終了します。宣言した時刻に自動で戻り、監視を再開します。次の脱出は 24 時間後まで使えません。"
+                "「終了を始める」を押すと 10 分後に終了します。選んだ時刻に自動で戻り、監視を再開します。脱出は 24 時間に 1 回だけです(次は 24 時間後から使えます)。"
             )
             .font(.callout)
             .foregroundStyle(.secondary)

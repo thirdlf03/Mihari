@@ -145,7 +145,7 @@ struct PetContextMenuTests {
 
         let menu = PetContextMenu.makeMenu(PetMenuEntries.make(actions: actions, presenter: presenter))
 
-        #expect(menu.items.first?.title == actions.safetyStatusLine)
+        #expect(menu.items.first?.title == actions.safetyStatusLine + "  ›")
         #expect(menu.items[1].isSeparatorItem)
     }
 }

@@ -95,6 +95,7 @@ struct SafetyModeViewModelTests {
         )
 
         // 拒否も未決定も、その機能が動かないことに変わりはないので同じ出し方にする。
+        // カメラは唯一の必須権限なので、進めないと伝える文言にする。
         for grant in [PermissionGrant.denied, .undetermined] {
             #expect(
                 SafetyModeViewModel.permissionRow(
@@ -105,12 +106,29 @@ struct SafetyModeViewModelTests {
                     tunneld: nil
                 )
                     == .missing(
-                        text: "カメラ: 未許可 — 許可されるまでこの機能は動きません",
+                        text: "カメラ: 未許可 — この機能の開始に必要です。OFF にすれば先へ進めます",
                         actionTitle: "システム設定を開く",
                         action: .openSystemSettings
                     )
             )
         }
+
+        // 権限が要る機能を持っているか / 拒否による影響を、必須と任意で書き分ける。
+        // オートメーションは任意(説教中の音楽停止だけが欠ける)。
+        #expect(
+            SafetyModeViewModel.permissionRow(
+                for: .sermonTakeover,
+                isEnabled: true,
+                kind: .automation,
+                grant: .denied,
+                tunneld: nil
+            )
+                == .missing(
+                    text: "オートメーション: 未許可 — Music / Spotify を止められません(オーバーレイは出ます)(任意なので OFF のままでも進めます)",
+                    actionTitle: "システム設定を開く",
+                    action: .openSystemSettings
+                )
+        )
 
         // 権限の要らない機能は ON でも静的な案内のまま。
         #expect(

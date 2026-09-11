@@ -81,4 +81,23 @@ public enum PermissionStateMapper {
             return PermissionState(grant: .undetermined, detail: "OSStatus=\(status)")
         }
     }
+
+    /// Music と Spotify の照会結果を 1 つのオートメーション状態にまとめる。
+    ///
+    /// どちらかが許可されていれば音楽は止められる。両方拒否されたときだけ拒否。
+    /// 片方だけ未起動などで判定できないときは未決定に倒し、許可済みを拒否と誤読しない。
+    public static func combinedAutomation(music: PermissionState, spotify: PermissionState) -> PermissionState {
+        let grant: PermissionGrant
+        if music.grant == .granted || spotify.grant == .granted {
+            grant = .granted
+        } else if music.grant == .denied && spotify.grant == .denied {
+            grant = .denied
+        } else {
+            grant = .undetermined
+        }
+        return PermissionState(
+            grant: grant,
+            detail: "Music=\(music.detail); Spotify=\(spotify.detail)"
+        )
+    }
 }

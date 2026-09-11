@@ -138,9 +138,9 @@ public enum SafetyModeViewModel {
         case .safety:
             return "撮らない・晒さない・縛らない。サボると吹き出しと声で注意するだけ。"
         case .custom(let enabledCount):
-            return "\(enabledCount) 個の機能を許しています。"
+            return "ON の機能が \(enabledCount) 個あります。"
         case .unlimited:
-            return "Mihari が本気になります。終了も 4 時間できません。"
+            return "Mihari が本気になります。終了もロック時間(既定 4 時間)はできません。"
         }
     }
 
@@ -280,8 +280,15 @@ public enum SafetyModeViewModel {
         if grant == .granted {
             return .satisfied("\(kind.title): 許可済み")
         }
+        // 残る権限は、必須(カメラ)と任意(オートメーション・モーション)に分かれる。
+        // 必須は「進めない」、任意は「一部だけ動かない」と書き分けて、断ったときの
+        // 影響を過大にも過小にも見せない。カメラだけが唯一の必須権限
+        // (`PermissionKind.required(for:)`)。
+        let isRequired = kind == .camera
         return .missing(
-            text: "\(kind.title): 未許可 — 許可されるまでこの機能は動きません",
+            text: isRequired
+                ? "\(kind.title): 未許可 — この機能の開始に必要です。OFF にすれば先へ進めます"
+                : "\(kind.title): 未許可 — \(kind.consequenceIfDenied)(任意なので OFF のままでも進めます)",
             actionTitle: "システム設定を開く",
             action: .openSystemSettings
         )

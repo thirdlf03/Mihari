@@ -195,7 +195,7 @@ struct StatusPanelSnapshotTests {
         #expect(off.isEnabled(.iphonePresence) == false)
         let shown = snapshot(signals: signals, settings: off)
         #expect(shown.iphoneWatched == false)
-        #expect(shown.iphoneText == "見ていない")
+        #expect(shown.iphoneText == "監視していない")
 
         var on = SafetySettings()
         on.enabled = [.iphonePresence, .discordExposure]

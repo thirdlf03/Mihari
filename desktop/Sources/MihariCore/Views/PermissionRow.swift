@@ -16,9 +16,7 @@ struct PermissionRow: View {
                 .accessibilityLabel(indicatorLabel)
 
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(kind.title).font(.body).bold()
-                }
+                Text(kind.title).font(.body).bold()
                 Text(kind.purpose)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -26,13 +24,12 @@ struct PermissionRow: View {
                     Text("未許可だと: \(kind.consequenceIfDenied)")
                         .font(.caption)
                         .foregroundStyle(.orange)
-                }
-                // 画面収録は許可した瞬間には効かず、次に起動したプロセスからしか使えない。
-                // ここに書いておかないと「許可したのに撮れない」で詰まる。
-                if kind == .screenRecording, state.grant != .granted {
-                    Text("許可後はアプリの再起動が必要")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
+                    if let hint = kind.setupHint {
+                        Text(hint)
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 // 照会に使った API と生の返り値は、切り分けのための開発者向けの情報。
                 // ふだんは出さず、`MIHARI_DEBUG_UI=1` のときだけ見せる。
@@ -56,10 +53,16 @@ struct PermissionRow: View {
                 Spacer(minLength: 0)
             }
 
+            // ボタンは説明の右側に置く。説明の下に置くと 1 行あたり +23pt 高くなり、
+            // 権限リストが縦に伸びて見える。
+            // 実測の行幅は 501pt で、600 幅ウインドウのコンテンツ幅 560 に収まるので
+            // ワンラインのままでよい。
             HStack(spacing: 8) {
                 if let title = kind.requestButtonTitle, state.grant != .granted {
+                    // この行の主たる行動(許可のプロンプト)を目立たせる。
                     Button(title, action: onRequest)
                         .controlSize(.small)
+                        .buttonStyle(.borderedProminent)
                 }
                 Button("システム設定を開く", action: onOpenSettings)
                     .controlSize(.small)

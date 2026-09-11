@@ -31,6 +31,18 @@ struct PermissionKindTests {
             }
         }
     }
+
+    @Test("オートメーションと画面収録は未許可時の案内がある")
+    func setupHintForTrickyPermissions() {
+        #expect(PermissionKind.camera.setupHint == nil)
+        #expect(PermissionKind.motion.setupHint == nil)
+        #expect(PermissionKind.screenRecording.setupHint == "許可後はアプリの再起動が必要")
+        let hint = PermissionKind.automation.setupHint
+        #expect(hint != nil)
+        #expect(hint?.contains("Music") == true)
+        #expect(hint?.contains("Spotify") == true)
+        #expect(PermissionKind.automation.purpose.contains("Spotify"))
+    }
 }
 
 @Suite("権限とセーフティートグルの対応")
@@ -72,7 +84,7 @@ struct PermissionFeatureMappingTests {
         var settings = SafetySettings.default
         settings.enabled = [.sermonTakeover]
         #expect(PermissionKind.relevant(for: settings) == [.automation, .motion])
-        // 実際に Music へ命令を送る瞬間までプロンプトが出せないため、必須にはしない。
+        // 実際に Music / Spotify へ命令を送る瞬間までプロンプトが出せないため、必須にはしない。
         #expect(PermissionKind.required(for: settings) == [])
         #expect(PermissionKind.requestableOnLaunch(for: settings) == [])
     }

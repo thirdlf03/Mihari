@@ -191,13 +191,16 @@ public struct SafetyModeView: View {
 
     private var scrollContent: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(SafetyFeature.allCases, id: \.self) { feature in
-                card(for: feature)
-            }
+            // このトグルは「ON にする操作を 24 時間後にする」という影響の大きい設定なので、
+            // カードより先に見せる(design-54.md / 視線誘導)。カードの下にあると、
+            // 後から ON にしたとき予約になることを知らないまま押してしまう。
+            changeLaterRow
 
             Divider()
 
-            changeLaterRow
+            ForEach(SafetyFeature.allCases, id: \.self) { feature in
+                card(for: feature)
+            }
 
             if case .settings = context, isPending {
                 bottomPendingBand
@@ -310,6 +313,17 @@ public struct SafetyModeView: View {
             in: RoundedRectangle(cornerRadius: 10)
         )
         .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay {
+            // 従属(前提が OFF)で選べないときは、点線の縁取りで「押せない」ことを
+            // はっきり示す(opacity 0.5 だけでは沈みが弱く、前後のカードと紛れる)。
+            if isDependencyDisabled(feature) {
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(
+                        Color.secondary.opacity(0.45),
+                        style: StrokeStyle(lineWidth: 1, dash: [4])
+                    )
+            }
+        }
     }
 
     /// カードの「権限」行の中身。
@@ -336,8 +350,10 @@ public struct SafetyModeView: View {
                     .font(.callout)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
+                // このカードの主たる行動なので、余白の警告文より目立たせる。
                 Button(actionTitle) { perform(action, for: feature) }
                     .controlSize(.small)
+                    .buttonStyle(.borderedProminent)
             }
         }
     }
@@ -372,20 +388,16 @@ public struct SafetyModeView: View {
         }
     }
 
-    /// 状態行。操作の結果の文言と、設定画面の予約帯を並べる。
+    /// 状態行。操作の結果の文言を出す。
+    ///
+    /// 予約(発効待ち)の表示は `bottomPendingBand` に 1 本にまとめる。カード内に出すと
+    /// 発効が近い何枚かに同じ予約が並び、視線が分散するため。
     @ViewBuilder
     private func statusRow(for feature: SafetyFeature) -> some View {
         if let message = cardMessages[feature] {
             Text(message)
                 .font(.caption)
                 .foregroundStyle(.orange)
-        }
-        if case .settings = context, let pending = safety.settings.pendingChange,
-            pending.enabling.contains(feature)
-        {
-            pendingBand(text: SafetyModeViewModel.pendingFeatureText(effectiveAt: pending.effectiveAt)) {
-                _ = safety.request(.cancelPendingChange, isWatching: isRestricted)
-            }
         }
     }
 
@@ -417,18 +429,23 @@ public struct SafetyModeView: View {
     // MARK: - 最下部の行
 
     /// 「あとで設定を変えられるようにする」。OFF の間は緩める変更が 24 時間後の予約になる。
+    ///
+    /// 影響の大きさ(ON を予約にする)を伝えるため、カードより先に見える位置に置き、
+    /// 見出しを大きくして背景を敷いてカード相当の目立ち方にする。
     private var changeLaterRow: some View {
         Toggle(isOn: changeLaterBinding) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("あとで設定を変えられるようにする")
-                    .font(.body)
+                    .font(.headline)
                 Text(changeLaterCaption)
-                    .font(.caption)
+                    .font(.callout)
                     .foregroundStyle(safety.settings.canChangeLater ? Color.secondary : Color.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .toggleStyle(.switch)
+        .padding(12)
+        .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
     }
 
     /// 「あとで設定を変えられるようにする」の説明文。
@@ -528,6 +545,23 @@ public struct SafetyModeView: View {
 
     private func applyAllOn() {
         clearMessages()
+        // 「全部 ON」は終了ロック(quitLock)まで含む強い操作で、必要な許可も複数飛ぶので
+        // 確認してから。断っても OFF 方向はいつでも戻せることを添える。
+        let alert = NSAlert()
+        alert.messageText = "「全部 ON」にしますか?"
+        alert.informativeText = [
+            "7 つの機能をすべて ON にします。",
+            "・「監視中は終了させない」が入り、既定 4 時間はアプリを終了できなくなります",
+            "・必要な許可(カメラ / iPhone の画面を撮るの tunneld 登録)がこのあと順に求められます",
+            "",
+            "許可を断っても、OFF にする操作(一部を除く)はいつでも戻せます。",
+        ].joined(separator: "\n")
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "全部 ON にする")
+        alert.buttons.first?.hasDestructiveAction = true
+        alert.addButton(withTitle: "キャンセル")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
         let previous = safety.settings
         let decision = safety.request(.enableAll, isWatching: isRestricted)
         // 拒否は起こり得ない(ON はいつでも通る)が、来たときの出し先が要るだけ。
@@ -549,8 +583,10 @@ public struct SafetyModeView: View {
         switch decision {
         case .apply(let newSettings, let skipped):
             // ON に成功した機能ごとに、呼び側の権限要求・tunneld 登録を促す。
-            // 依頼どおりできなかった機能(監視中に残した quitLock など)は状態行で伝える。
-            for feature in newSettings.enabled.subtracting(previous.enabled) {
+            // セットのままだと順序が不定で複数のダイアログが重なるので、
+            // トグルの並び順(`allCases`)に揃えて「その場で 1 つずつ」に倒す。
+            for feature in SafetyFeature.allCases
+            where newSettings.enabled.contains(feature) && !previous.enabled.contains(feature) {
                 onFeatureEnabled(feature)
             }
             for feature in skipped {

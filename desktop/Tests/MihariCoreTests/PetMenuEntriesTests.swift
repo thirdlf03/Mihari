@@ -51,7 +51,7 @@ struct PetMenuEntriesTests {
             Issue.record("先頭が項目でない")
             return
         }
-        #expect(title == actions.safetyStatusLine)
+        #expect(title == actions.safetyStatusLine + "  ›")
         guard case .separator = entries[1] else {
             Issue.record("モード行の直後に区切り線が無い")
             return
@@ -168,7 +168,7 @@ struct PetMenuEntriesTests {
         let actions = StubPetMenuActions()
 
         let modeLine = try #require(
-            findItem(actions.safetyStatusLine, in: PetMenuEntries.make(actions: actions, presenter: presenter))
+            findItem(actions.safetyStatusLine + "  ›", in: PetMenuEntries.make(actions: actions, presenter: presenter))
         )
         modeLine.action()
 

@@ -85,7 +85,7 @@ public enum SafetyFeature: String, CaseIterable, Codable, Sendable, Hashable {
         case .iphonePresence: return "なし(USB 接続)"
         case .iphoneScreenshot: return "tunneld の登録(管理者パスワード)"
         case .discordExposure: return "なし"
-        case .sermonTakeover: return "オートメーション(ミュージック)"
+        case .sermonTakeover: return "オートメーション(Music / Spotify)"
         case .quitLock: return "なし"
         case .photobomb: return "デスクトップフォルダへのアクセス"
         }
