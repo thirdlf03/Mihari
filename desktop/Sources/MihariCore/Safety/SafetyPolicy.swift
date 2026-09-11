@@ -224,9 +224,9 @@ public enum SafetyPolicy {
     /// pendingChange に予約を積む。
     ///
     /// 既に pending があれば `enabling` は和集合にし、`restoresChangeability` は
-    /// どちらかが true なら true にする。`effectiveAt` は今回の `now + coolingOffInterval`
-    /// で置き換える(発効は常に「最後に依頼を出して 24 時間後」。先に入れた予約も一緒に
-    /// 延びるが、緩める方向を遅らせる側なので安全側として許容する)。
+    /// どちらかが true なら true にする。`effectiveAt` は既存予約の発効時刻と今回の
+    /// `now + coolingOffInterval` の早い方を取る ―― 予約を重ねても既存予約の発効を
+    /// 延ばさない。新しく積んだ分は既存の発効時刻に相乗りする(個別の発効時刻は持たない)。
     private static func schedule(
         enabling: Set<SafetyFeature>,
         restoresChangeability: Bool,
@@ -235,10 +235,11 @@ public enum SafetyPolicy {
     ) -> SafetyDecision {
         var settings = current
         let previous = current.pendingChange
+        let deadline = now.addingTimeInterval(coolingOffInterval)
         settings.pendingChange = SafetyPendingChange(
             enabling: (previous?.enabling ?? []).union(enabling),
             restoresChangeability: (previous?.restoresChangeability ?? false) || restoresChangeability,
-            effectiveAt: now.addingTimeInterval(coolingOffInterval)
+            effectiveAt: min(previous?.effectiveAt ?? deadline, deadline)
         )
         return .schedule(settings, skipped: [])
     }

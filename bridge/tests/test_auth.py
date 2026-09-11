@@ -5,9 +5,12 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 
-def test_health_needs_no_token(client: TestClient) -> None:
-    # 生死確認だけはトークン無しで通す。アプリが起動直後に叩けるようにするため。
-    response = client.get("/health")
+def test_health_requires_token(client: TestClient, auth: dict[str, str]) -> None:
+    # /health は safety の中身や pid を含むため、無認証には出さない。
+    # アプリは起動直後からトークンを持っているので、認証を付けても叩ける。
+    assert client.get("/health").status_code == 401
+
+    response = client.get("/health", headers=auth)
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
 

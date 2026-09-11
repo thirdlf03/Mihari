@@ -338,13 +338,14 @@ struct SafetyPolicyTests {
         expected.pendingChange = SafetyPendingChange(
             enabling: [.iphonePresence, .iphoneScreenshot],
             restoresChangeability: false,
-            effectiveAt: due
+            // 発効は既存予約の時刻に相乗りする(延びない)。
+            effectiveAt: now.addingTimeInterval(60 * 60)
         )
         #expect(decision == .schedule(expected, skipped: []))
     }
 
-    @Test("予約が既にあれば enabling は和集合になり、発効は今回の 24 時間後に置き換わる")
-    func schedulingMergesEnablingAndResetsEffectiveAt() {
+    @Test("予約が既にあれば enabling は和集合になり、発効は早い方の時刻を引き継ぐ")
+    func schedulingKeepsTheEarliestEffectiveAt() {
         let previous = SafetyPendingChange(
             enabling: [.quitLock],
             restoresChangeability: false,
@@ -363,7 +364,9 @@ struct SafetyPolicyTests {
         expected.pendingChange = SafetyPendingChange(
             enabling: [.quitLock, .macCamera],
             restoresChangeability: false,
-            effectiveAt: due
+            // 新しく積んだ分は既存の発効時刻に相乗りする。今回の依頼から 24 時間後
+            // (due)まで延びることはない。
+            effectiveAt: now.addingTimeInterval(60 * 60)
         )
         #expect(decision == .schedule(expected, skipped: []))
     }

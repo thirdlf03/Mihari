@@ -3,8 +3,10 @@ import os
 
 /// `device-bridge serve` を子プロセスとして起動し、終了まで面倒を見る。
 ///
-/// stdin は開いたまま保持する。アプリが死ぬとパイプが閉じ、Python 側がそれを検知して
-/// 自分から終了する。孤児のデーモンが残らないための仕掛け。
+/// stdin は開いたまま保持する。起動直後に 1 行目としてトークンを書き込む
+/// (argv に載せると、同じ Mac の他プロセスから `ps` で読めてしまうため)。
+/// そのあとも閉じずに置いておくのは、アプリが死んだときにパイプが閉じるのを
+/// Python 側が検知して自分から終了するため。孤児のデーモンが残らないための仕掛け。
 public final class DaemonProcess: @unchecked Sendable {
 
     private static let logger = Logger(subsystem: "com.thirdlf03.mihari", category: "daemon")
@@ -45,12 +47,13 @@ public final class DaemonProcess: @unchecked Sendable {
         case .bundled(let directory):
             // 同梱バイナリは自分が Python ごと抱えているので、間に uv を挟まない。
             process.executableURL = URL(fileURLWithPath: directory + "/device-bridge")
-            process.arguments = ["serve", "--token", token]
+            // トークンは argv に載せず、起動後に stdin の 1 行目として渡す。
+            process.arguments = ["serve"]
         case .source(let bridge, let uv):
             process.executableURL = URL(fileURLWithPath: uv)
             process.arguments = [
                 "run", "--frozen", "--project", bridge,
-                "device-bridge", "serve", "--token", token,
+                "device-bridge", "serve",
             ]
         }
         process.standardInput = stdinPipe
@@ -66,6 +69,17 @@ public final class DaemonProcess: @unchecked Sendable {
             try process.run()
         } catch {
             throw DaemonError.launchFailed(message: error.localizedDescription)
+        }
+
+        // 子が即死してパイプが閉じていると、書き込み時の SIGPIPE でアプリごと落ちる。
+        // 無視するよう頼んでおいて、失敗は write のエラーとして拾う。
+        signal(SIGPIPE, SIG_IGN)
+        do {
+            // トークンは stdin の 1 行目で渡す。argv に載せると `ps` から読めるため。
+            try stdinPipe.fileHandleForWriting.write(contentsOf: Data((token + "\n").utf8))
+        } catch {
+            process.terminate()
+            throw DaemonError.launchFailed(message: "トークンを書き込めなかった: \(error.localizedDescription)")
         }
         startDrainingStandardError()
 

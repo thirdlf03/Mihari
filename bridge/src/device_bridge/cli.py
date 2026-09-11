@@ -14,7 +14,7 @@ from typing import Any
 
 from device_bridge.commands import devices
 from device_bridge.daemon.config import DaemonConfig
-from device_bridge.daemon.server import serve
+from device_bridge.daemon.server import read_token_from_stdin, serve
 
 
 def main() -> int:
@@ -54,7 +54,12 @@ def _build_parser() -> argparse.ArgumentParser:
     info_parser.add_argument("--udid", required=True, help="対象デバイスの UDID")
 
     serve_parser = subparsers.add_parser("serve", help="常駐デーモンを起動する")
-    serve_parser.add_argument("--token", required=True, help="macOS アプリと共有する認証トークン")
+    serve_parser.add_argument(
+        "--token",
+        default=None,
+        help="macOS アプリと共有する認証トークン。省略時は stdin の 1 行目から読む"
+        "(macOS アプリからの起動はこちら。argv は ps から見えるため)",
+    )
     serve_parser.add_argument(
         "--port",
         type=int,
@@ -68,7 +73,8 @@ def _build_parser() -> argparse.ArgumentParser:
 def _serve(args: argparse.Namespace) -> int:
     """デーモンを起動する。終了するまで戻らない。"""
     try:
-        config = DaemonConfig(token=args.token, port=args.port)
+        # --token の省略は macOS アプリからの起動。トークンは stdin の 1 行目で受け取る。
+        config = DaemonConfig(token=args.token or read_token_from_stdin(), port=args.port)
     except ValueError as error:
         print(json.dumps({"error": str(error)}, ensure_ascii=False), file=sys.stderr)
         return 1

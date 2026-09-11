@@ -15,7 +15,8 @@ public final class AppCoordinator: ObservableObject, PetMenuActions {
     /// 検証用の 10 タブ画面を出すかどうかを決める環境変数。
     static let debugUIEnvironmentKey = "MIHARI_DEBUG_UI"
 
-    private static let logger = Logger(subsystem: "com.thirdlf03.mihari", category: "app-coordinator")
+    // extension(QuitLock / Escape / Uninstall / Ceremony)からも触るため internal。
+    static let logger = Logger(subsystem: "com.thirdlf03.mihari", category: "app-coordinator")
 
     public let permissions: PermissionsModel
     public let daemon = DaemonController()
@@ -70,31 +71,31 @@ public final class AppCoordinator: ObservableObject, PetMenuActions {
         safety.isEnabled(.photobomb)
     }
     /// アンインストールの進行中か。終了確認(`confirmQuit`)を素通しするためのフラグ。#55
-    public private(set) var isUninstalling = false
+    public internal(set) var isUninstalling = false
     /// 消す作業そのものの Task。終了要求はこれの完了を待ってから通す。#55
     ///
     /// 待たずに通すと、SIGTERM 経路が `exit(0)` で即死して、消しかけの登録とファイルが
     /// 残ったままになる。
-    private var uninstallTask: Task<Void, Never>?
+    var uninstallTask: Task<Void, Never>?
 
     /// 在席スタンプのカットインを出す層。
-    private let cutIn: AttendanceCutInPresenting = AttendanceCutInPresenter()
+    let cutIn: AttendanceCutInPresenting = AttendanceCutInPresenter()
     /// 在席スタンプ / 疑い 1 の演出をしている最中か。押し直しでカットインが重なるのを防ぐ。
-    private var isStampCeremonyRunning = false
+    var isStampCeremonyRunning = false
     /// 演出の世代。畳まれたら 1 つ進めて、結末の演出を出さずにカットインだけ閉じる。
-    private var ceremonyGeneration = 0
+    var ceremonyGeneration = 0
 
     /// カットインを出してから認証ダイアログを出すまでの間(秒)。
-    private static let cutInLeadInSeconds: TimeInterval = 0.45
+    static let cutInLeadInSeconds: TimeInterval = 0.45
     /// 結末の絵に差し替えてからカットインを閉じるまでの時間(秒)。
-    private static let cutInHoldSeconds: TimeInterval = 1.8
+    static let cutInHoldSeconds: TimeInterval = 1.8
 
     /// 音を出す口。検知のセリフとペットのひとりごとで 1 つを共有する。
     private let speechPlayer: SpeechPlayer
     /// アプリの外(Claude Code のフックなど)からの合図の受け口。
     private let externalTrigger = ExternalTriggerListener()
     /// スクリーンショットが保存されたのを見張る。
-    private let photobombWatcher = ScreenshotPhotobombWatcher()
+    let photobombWatcher = ScreenshotPhotobombWatcher()
     /// 保存されたスクショにペットのスプライトを描き足す層。
     ///
     /// セリフをペットの吹き出しに繋ぐため、`self` を参照できる `lazy var` にしてある。
@@ -107,53 +108,53 @@ public final class AppCoordinator: ObservableObject, PetMenuActions {
             return (definition, self.pet.controller.wardrobeSelection)
         }
     )
-    private let windows = AuxiliaryWindows()
+    let windows = AuxiliaryWindows()
     /// 設定ウィンドウで選ばれているタブ。ウィンドウを閉じても覚えておき、
     /// 次に `openSettings(tab: nil)` で開いたときは前回のタブのまま出す。
     private let settingsTabSelection = SettingsTabSelection()
     private let statusPanel = StatusPanelController()
     /// 監視中はディスプレイ/システムのアイドルスリープを止める。
-    private let sleepPreventer: SleepPreventing
+    let sleepPreventer: SleepPreventing
     /// `quitTimeLock` に渡す既定のロック時間。デーモン(Discord の `/watch lock`)から
     /// 取れなかったときのフォールバック。
-    private static let defaultLockHours: Double = 4
+    static let defaultLockHours: Double = 4
     /// ロックの解除時刻(`quitTimeLock.unlockAt`)をまたいで覚えておく UserDefaults のキー。
     /// 値は `Date`。kill されて再起動しても、宣言した解除時刻を引き継ぐために置いておく(#52)。
-    private static let quitLockDeadlineKey = "quitLock.unlockAt"
+    static let quitLockDeadlineKey = "quitLock.unlockAt"
     /// kill されて落ちても次回ログインで自動的に立ち上がるよう登録する。
-    private let loginItemRegistrar: LoginItemRegistering
+    let loginItemRegistrar: LoginItemRegistering
     /// 本体が kill されても、こちらの監視プロセスが数秒以内に起こす。
-    private let watchdogRegistrar: WatchdogRegistering
+    let watchdogRegistrar: WatchdogRegistering
     /// 前回、正常に終了できていたか(kill されて起こされたのかを見分けるため)。
     private let lifecycleMarker: AppLifecycleMarking
     /// 起動してからの終了ロック。`begin()` の経路でセットされ、ロックが解けるまで
     /// 終了とアンインストールを拒む。#55 の `canUninstall` もここを見る。
-    private var quitTimeLock: QuitTimeLock
+    var quitTimeLock: QuitTimeLock
     private var cancellables: Set<AnyCancellable> = []
     /// すでに見張り始めたか。`begin()` を何度呼んでも 1 回しか効かないようにする。
-    private var hasBegun = false
+    var hasBegun = false
     /// 監視プロセスの登録を定期的に見直すループ。`launchctl bootout` で外から
     /// 消されても、Touch ID を経ずには長続きさせないためのもの。
-    private var watchdogReassertionTask: Task<Void, Never>?
+    var watchdogReassertionTask: Task<Void, Never>?
     /// 上の見直しの間隔。短すぎると無駄に `launchctl` を叩き、長すぎると
     /// 「外から消されてから戻るまで」のすきまが意味を持ち始める。
-    private static let watchdogReassertionInterval: Duration = .seconds(20)
+    static let watchdogReassertionInterval: Duration = .seconds(20)
     /// quitLock トグルのひとつ前の ON/OFF。購読直後は「いまの状態」を覚えるだけで
     /// 何もしない(begin() が適用済みのため)。
     private var quitLockPolicyState: Bool?
     /// 前回の執行猶予脱出からの復帰で「戻ってきた」か。デーモン接続後の投稿までためておく。
-    private var pendingEscapeReturn: Bool?
+    var pendingEscapeReturn: Bool?
     /// 「逃げた」の投稿を待つ Task。終了要求はこれの完了を待ってから通す。#52
     ///
     /// 投稿を投げっぱなしにすると、直後の Cmd+Q / SIGTERM で接続ごと消えて投稿が飛ぶ。
-    private var escapePostTask: Task<Void, Never>?
+    var escapePostTask: Task<Void, Never>?
     /// ON にした機能の事後処理を直列に流すための連鎖。複数の機能が同じタイミングで
     /// ON になったとき(「全部 ON」など)に、権限要求と tunneld 登録が重ならないようにする。
     private var featureEnableTask: Task<Void, Never>?
     /// 「逃げた」の投稿を待つ上限。ここまで待って返らなければ投稿を諦めて終了する。
-    private static let escapePostTimeout: Duration = .seconds(10)
+    static let escapePostTimeout: Duration = .seconds(10)
     /// quitLock の解除時刻などの保存先。
-    private let defaults: UserDefaults
+    let defaults: UserDefaults
 
     /// - Parameters:
     ///   - sleepPreventer: スリープ防止の実体。テストでは呼び出し回数だけ記録するスタブに差し替える。
@@ -372,347 +373,6 @@ public final class AppCoordinator: ObservableObject, PetMenuActions {
         return true
     }
 
-    // MARK: - アンインストール (#55)
-
-    /// 終了ロック中か。quitLock トグルが ON でも、解除時刻が過ぎていればロック中ではない。
-    ///
-    /// `quitTimeLock` は `begin()` 以降にしかセットされない(初期値は無ロック)ので、
-    /// `hasBegun` の検査は不要。[#52] の `isWatchingForSafety` は「監視外でもロック中は監視中として
-    /// 扱う」文脈なので `hasBegun` を見ているが、こちらは quitLock トグルが ON であることを
-    /// 外側の条件で確かめるため、ロックの本体だけで判定できる。
-    private var isQuitLocked: Bool {
-        !quitTimeLock.isUnlocked()
-    }
-
-    /// アンインストールできるか。quitLock が ON のロック中は、アンインストールの確認を
-    /// 出せない(終了ブロックの抜け道にしないため)。設定画面のボタンの押下可否と
-    /// `uninstall()` の二重ガードが同じ判定を見る。
-    public var canUninstall: Bool {
-        !(safety.isEnabled(.quitLock) && isQuitLocked)
-    }
-
-    /// アンインストールを始める。設定画面の「Mihari をアンインストール…」から呼ばれる。
-    ///
-    /// 確認ダイアログで OK が出たら、見張りとデーモンを止めて `Uninstaller` に消す作業を
-    /// 任せる。失敗があれば手動の手順を示し、いずれにせよ終了する。
-    /// `canUninstall == false`(quitLock が ON のロック中)なら何もしない。
-    public func uninstall() {
-        guard canUninstall else { return }
-
-        let alert = NSAlert()
-        alert.messageText = "Mihari をアンインストールします"
-        // 消えるものを箇条書きで見せてから、破壊的な操作の確認を 1 枚だけ出す。
-        let bullets = UninstallStep.allCases.map(\.title).joined(separator: "\n")
-        alert.informativeText = "次のものを削除します。この操作は取り消せません:\n\(bullets)"
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "アンインストール")
-        alert.buttons.first?.hasDestructiveAction = true
-        alert.addButton(withTitle: "やめる")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-
-        isUninstalling = true
-        // 消す作業と、そのあとの終了は分けておく。`confirmQuit` が待つのは前者だけで、
-        // 自分自身の完了を待って固まらないようにする。
-        let work = Task { [weak self] in
-            guard let self else { return }
-            // 消している最中に検知・写り込み・デーモンが動き続けないように止める。
-            detection.stop()
-            photobombWatcher.stop()
-            daemon.stop()
-            // watchdog を見直すループを止めないと、`Uninstaller` が消した直後に登録を
-            // 引き戻して「消したのに残る」になる。
-            watchdogReassertionTask?.cancel()
-            watchdogReassertionTask = nil
-
-            let report = await Uninstaller(
-                watchdog: watchdogRegistrar,
-                loginItem: loginItemRegistrar,
-                tunneld: tunneld
-            ).run()
-
-            if !report.failed.isEmpty {
-                showUninstallFailure(report)
-            }
-        }
-        uninstallTask = work
-        Task {
-            await work.value
-            NSApp.terminate(nil)
-        }
-    }
-
-    /// アンインストールに失敗したステップを、手動の手順と一緒にダイアログで知らせる。
-    private func showUninstallFailure(_ report: UninstallReport) {
-        let details = report.failed
-            .map { "• \($0.step.title): \($0.reason)" }
-            .joined(separator: "\n")
-        let alert = NSAlert()
-        alert.messageText = "アンインストールが完了しませんでした"
-        alert.informativeText =
-            "次の項目を消せませんでした:\n\(details)\n\n"
-            + "手動で削除するには、以下のコマンドを Terminal で実行してください:\n"
-            + report.manualInstructions
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "閉じる")
-        alert.runModal()
-    }
-
-    // MARK: - quitLock トグルと執行猶予脱出 (#52)
-
-    /// quitLock トグルのいまの状態に、常駐の仕掛けを合わせる。
-    ///
-    /// `begin()` と、quitLock が OFF→ON に変わったとき(監視外でしか起きない)に呼ぶ。
-    /// ON のときはスリープ防止・ログイン項目・watchdog(+見直しループ)を入れ、
-    /// 保存されていた解除時刻(`quitLock.unlockAt`)が未来ならそれを引き継ぐ。引き継ぐ
-    /// ものが無ければ既定時間で仮ロックして、この瞬間からロックを効かせる。
-    /// OFF のときは以前 ON だったときの登録を掃除する。ON→OFF はロック中には起きない
-    /// (SafetyPolicy が弾く)ので、掃除だけで足りる。
-    private func applyQuitLockPolicy() {
-        if safety.isEnabled(.quitLock) {
-            sleepPreventer.start()
-            loginItemRegistrar.ensureRegistered()
-            watchdogRegistrar.ensureRegistered()
-            startWatchdogReassertion()
-            resumePersistedQuitLockDeadline()
-            beginProvisionalQuitLockIfNeeded()
-        } else {
-            releaseQuitLock()
-        }
-    }
-
-    /// 引き継ぐ解除時刻が無ければ、既定の 4 時間で仮ロックして保存する。
-    ///
-    /// 解除時刻はデーモンに繋がってからでないと確定しない(`establishFreshQuitLockDeadline`)。
-    /// その数秒を `unlockAt == nil` のまま放っておくと `QuitTimeLock.isUnlocked()` が true を
-    /// 返し、Cmd+Q / SIGTERM が素通りしてしまう。#5 は「起動した瞬間から効く」なので、
-    /// 先に塞いでおく。仮ロックだと分かるようにしておき、確定したら引き直す。
-    /// 再起動を跨いだときは保存値の引き継ぎ側が拾うので、そのまま本ロックとして扱われる。
-    private func beginProvisionalQuitLockIfNeeded() {
-        guard quitTimeLock.unlockAt == nil else { return }
-        quitTimeLock = QuitTimeLock.provisional(hours: Self.defaultLockHours, from: Date())
-        defaults.set(quitTimeLock.unlockAt, forKey: Self.quitLockDeadlineKey)
-    }
-
-    /// 終了ブロックを OFF にしたときの後片付け。登録を解き、解除時刻と保存を取り消す。
-    private func releaseQuitLock() {
-        watchdogRegistrar.unregister()
-        loginItemRegistrar.unregister()
-        watchdogReassertionTask?.cancel()
-        watchdogReassertionTask = nil
-        sleepPreventer.stop()
-        quitTimeLock = QuitTimeLock()
-        defaults.removeObject(forKey: Self.quitLockDeadlineKey)
-    }
-
-    /// 監視プロセスの登録を定期的に見直すループを始める。既に走っていれば何もしない。
-    ///
-    /// `launchctl bootout` で登録だけ外からむしり取られても、Touch ID を経ない解除を
-    /// 長続きさせない。解除側(`releaseQuitLock`)で止めてから OFF→ON されたときは
-    /// 最初からやり直せるよう、止めたら nil に戻してある。
-    private func startWatchdogReassertion() {
-        guard watchdogReassertionTask == nil else { return }
-        watchdogReassertionTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: Self.watchdogReassertionInterval)
-                guard !Task.isCancelled else { return }
-                self?.watchdogRegistrar.reassertIfMissing()
-            }
-        }
-    }
-
-    /// 保存されていた解除時刻(`quitLock.unlockAt`)が未来なら、そのまま引き継ぐ。
-    /// 監視を再開した拍子に 4 時間へ延び直さないためのもの。同期で済ませて、デーモン
-    /// に繋がる前でもロックが効いている状態にする。
-    private func resumePersistedQuitLockDeadline() {
-        guard quitTimeLock.unlockAt == nil else { return }
-        guard let persisted = defaults.object(forKey: Self.quitLockDeadlineKey) as? Date,
-            persisted > Date()
-        else { return }
-        quitTimeLock = QuitTimeLock(unlockAt: persisted)
-    }
-
-    /// 終了ロックの解除時刻を確定する。デーモンに繋がったあとに呼ぶ。
-    ///
-    /// 保存値の引き継ぎ(`resumePersistedQuitLockDeadline`)で既に本ロック中なら何もしない。
-    /// 仮ロック中(`beginProvisionalQuitLockIfNeeded`)なら Discord の `/watch lock` の値
-    /// (取れなければ既定 4 時間)で引き直して保存する ―― 取れないからロックしない、は
-    /// 「ロックできない状況を作れば終了できる」という抜け道になってしまう。
-    private func establishFreshQuitLockDeadline() async {
-        guard quitTimeLock.acceptsFreshDeadline else { return }
-        var hours: Double?
-        if let client = daemon.connectedClient {
-            hours = try? await client.lockHours()
-        }
-        // lockHours を待っているあいだに別経路で確定されたら、`establishing` が据え置く。
-        let established = QuitTimeLock.establishing(
-            from: quitTimeLock,
-            persisted: defaults.object(forKey: Self.quitLockDeadlineKey) as? Date,
-            now: Date(),
-            hours: hours ?? Self.defaultLockHours
-        )
-        guard established != quitTimeLock else { return }
-        quitTimeLock = established
-        defaults.set(quitTimeLock.unlockAt, forKey: Self.quitLockDeadlineKey)
-    }
-
-    /// 執行猶予脱出のメニュー項目の状態(quitLock が ON でロック中のときだけ出す)。
-    public var escapeMenuState: EscapeMenuState {
-        guard hasBegun, safety.isEnabled(.quitLock), !quitTimeLock.isUnlocked() else {
-            return .hidden
-        }
-        switch escape.phase {
-        case .idle:
-            // 冷却中なら理由を添えただけで押せない項目にし、使えるときだけダイアログへ。
-            if let remaining = EscapePolicy.cooldownRemaining(
-                lastEscapeAt: safety.settings.lastEscapeAt,
-                now: Date()
-            ) {
-                return .coolingDown(remaining: remaining)
-            }
-            return .available
-        case .countingDown(_, let endsAt):
-            return .countingDown(remaining: max(0, endsAt.timeIntervalSinceNow))
-        case .readyToTerminate:
-            // もう終了が始まるだけなので、メニュー項目は出さない。
-            return .hidden
-        }
-    }
-
-    /// 執行猶予脱出の宣言ダイアログを開く。
-    public func openEscapeDialog() {
-        // 選択肢とそれに添える実時刻は同じ時刻から作る。
-        let now = Date()
-        let choices = EscapePolicy.returnDelayChoices(
-            now: now,
-            unlockAt: quitTimeLock.unlockAt
-        )
-        windows.showEscape {
-            EscapeDialogView(
-                choices: choices,
-                now: now,
-                postsToDiscord: safety.isEnabled(.discordExposure),
-                onStart: { [weak self] delay in self?.startEscape(returnDelay: delay) },
-                onCancel: { [weak self] in self?.windows.closeEscape() }
-            )
-        }
-    }
-
-    /// 執行猶予脱出のカウントダウンを取り消す。
-    public func cancelEscape() {
-        escape.cancel()
-        pet.controller.say("…うん、行かないんだ。ここにいて。")
-    }
-
-    /// 執行猶予脱出を始める。宣言ダイアログを閉じ、10 分のカウントダウンに入る。
-    private func startEscape(returnDelay: TimeInterval) {
-        windows.closeEscape()
-        escape.start(returnDelay: returnDelay, now: Date())
-        pet.controller.say("…行くの? 10 分だけ、待ってる。")
-    }
-
-    /// 執行猶予脱出のコールバックを配線する。
-    private func wireEscape() {
-        escape.onNag = { [weak self] remaining in
-            guard let self else { return }
-            let minutes = EscapePolicy.durationDescription(remaining)
-            guard let line = Self.escapeNagPool.randomElement() else { return }
-            // 音声ファイルは用意しない。吹き出しだけ出す(読み上げない)。
-            self.pet.controller.say(
-                line.replacingOccurrences(of: "{minutes}", with: minutes),
-                voiced: false
-            )
-        }
-        escape.onCountdownFinished = { [weak self] record in
-            guard let self else { return }
-            self.finishEscape(record: record)
-        }
-    }
-
-    /// カウントダウン中の引き止めセリフの候補。`{minutes}` に残り時間(「5 分」など)が入る。
-    private static let escapeNagPool = [
-        "あと {minutes}。まだ、いてくれる?",
-        "{minutes}待ったら、ちゃんと戻ってくるよね?",
-        "あと {minutes}だけ。私のところにいて。",
-    ]
-
-    /// 執行猶予脱出のカウントダウンが終わった。記録を残して終了する。
-    ///
-    /// 1. 記録を保存(次回起動の復帰判定と、watchdog の「宣言時刻まで起こさない」に使う)。
-    /// 2. 「逃げた」を Discord に投稿(晒しが ON のとき)。
-    /// 3. 終了する。watchdog とログイン項目は**解除しない** —— 宣言時刻に自動で立ち上がって
-    ///    監視を再開するために使う。
-    private func finishEscape(record: EscapeRecord) {
-        let url = EscapeRecordStore.url()
-        do {
-            try EscapeRecordStore.save(record, to: url)
-        } catch {
-            Self.logger.error("escape の記録を保存できなかった: \(error.localizedDescription, privacy: .public)")
-        }
-        safety.markEscapeUsed(at: record.escapedAt)
-        EscapeController.savePendingReport(record, defaults: defaults)
-        // 投稿はデーモンを落とす(shutdown)前に済ませる。接続を切ってからでは届かない。
-        // 待っているあいだに Cmd+Q / SIGTERM が来ても投稿が飛ばないよう、`confirmQuit`
-        // からも同じ Task を待つ。
-        let posting = postEscaped(record: record)
-        escapePostTask = posting
-        Task { [weak self] in
-            await posting.value
-            self?.shutdown()
-            NSApp.terminate(nil)
-        }
-    }
-
-    /// 「逃げた」を Discord に投稿する Task を作る。晒しが OFF なら何もしない Task を返す。
-    ///
-    /// 投稿が返ってこないせいで終了できなくなるのを避けるため、`escapePostTimeout` で
-    /// 投稿を取り消す。取り消された投稿は `discord.post` の失敗として扱われ(原因は
-    /// `DiscordController` がログに残す)、終了はそのまま進む。
-    private func postEscaped(record: EscapeRecord) -> Task<Void, Never> {
-        guard safety.isEnabled(.discordExposure) else { return Task {} }
-        let text = DiscordMessageComposer.escaped(returnAt: record.returnAt)
-        let post = Task<Void, Never> { [discord, daemon] in
-            await discord.post(text: text, image: nil, mention: true, using: daemon.connectedClient)
-        }
-        return Task {
-            let deadline = Task {
-                try? await Task.sleep(for: Self.escapePostTimeout)
-                post.cancel()
-            }
-            await post.value
-            deadline.cancel()
-        }
-    }
-
-    /// 前回の執行猶予脱出からの復帰を処理する。
-    ///
-    /// `pendingReport` があれば、宣言どおり再起動されてきたということ。watchdog が宣言
-    /// 時刻に記録を消して起こしているので、残っていればここで消す。Mac を触っている
-    /// (= 無操作 60 秒以内)なら「戻ってきた」、触っていなければ「戻っていなかった」を、
-    /// デーモンに繋がってから投稿する。
-    private func handleEscapeReturnIfNeeded() {
-        guard EscapeController.consumePendingReport(defaults: defaults) != nil else { return }
-        // watchdog が宣言時刻に消しているはずだが、残っていれば(手動で立ち上げた等)消す。
-        EscapeRecordStore.remove(at: EscapeRecordStore.url())
-        let returned = EscapePolicy.didReturn(idleSeconds: MacIdleMonitor().idleSeconds())
-        pendingEscapeReturn = returned
-    }
-
-    /// 執行猶予脱出からの復帰の投稿を、デーモンに繋がったいま送る。
-    private func postEscapeReturnIfPending() {
-        guard let returned = pendingEscapeReturn else { return }
-        pendingEscapeReturn = nil
-        guard safety.isEnabled(.discordExposure) else { return }
-        Task { [discord, daemon] in
-            await discord.post(
-                text: returned ? DiscordMessageComposer.returned() : DiscordMessageComposer.didNotReturn(),
-                image: nil,
-                // 戻っていなかったときだけ呼びつける(戻ってきたなら呼ぶ必要がない)。
-                mention: !returned,
-                using: daemon.connectedClient
-            )
-        }
-    }
-
     /// Dock のアイコンがクリックされた。
     ///
     /// - Returns: AppKit に既定の処理(ウィンドウを開き直す)を続けさせるか。
@@ -817,75 +477,6 @@ public final class AppCoordinator: ObservableObject, PetMenuActions {
     public func stopWatching() {
         // 休憩には触れない。休憩と監視の開始 / 停止は別の話。
         detection.stop()
-    }
-
-    /// 在席スタンプを押す。ペットが指を差し出し、Touch ID に指を置いて「指を合わせる」演出にする。
-    ///
-    /// 演出中に押し直されても何もしない。カットインが二重に出てしまうため。
-    /// 押した時点で「いま席にいる」と示されたことになるので、進んでいた疑いはここで畳む。
-    public func stampAttendance() {
-        detection.acknowledgePresence()
-        guard !isStampCeremonyRunning else { return }
-        isStampCeremonyRunning = true
-        Task { [weak self] in
-            guard let self else { return }
-            await runCeremony(.stamp)
-            isStampCeremonyRunning = false
-        }
-    }
-
-    /// 疑い 1 の Touch ID チェック。在席スタンプと同じ演出を、疑い用のセリフで流す。
-    ///
-    /// 成功しても履歴には残さない(`verify()`)。促されて置いた指で 5 分間見逃されては
-    /// チェックの意味が無い。
-    private func confirmPresence(onPhone: Bool) async -> AttendanceStampOutcome {
-        guard !isStampCeremonyRunning else { return .failed }
-        isStampCeremonyRunning = true
-        defer { isStampCeremonyRunning = false }
-        return await runCeremony(.suspect(onPhone: onPhone))
-    }
-
-    /// 走っている Touch ID の演出を畳む。ダイアログを閉じ、結末を出さずにカットインも引っ込める。
-    private func cancelPresenceCheck() {
-        ceremonyGeneration += 1
-        attendance.cancelAuthentication()
-        cutIn.dismiss()
-    }
-
-    /// Touch ID の演出をひと続きで進める。
-    @discardableResult
-    private func runCeremony(_ variant: AttendanceCeremonyVariant) async -> AttendanceStampOutcome {
-        ceremonyGeneration += 1
-        let generation = ceremonyGeneration
-
-        attendance.refreshAvailability()
-        let definition = pet.controller.currentPet
-        // パスワードにフォールバックする環境では「指を合わせる」が成立しないので、
-        // カットインは出さずにペットの動きとセリフだけにする。
-        let useCutIn = attendance.isBiometricsAvailable && (definition?.hasCutInImages ?? false)
-
-        let opening = AttendanceCeremonyScript.opening(variant)
-        pet.controller.playOnce(opening.animation)
-        pet.controller.say(opening.kind)
-        if useCutIn, let definition, let image = opening.cutInImage {
-            cutIn.present(image, of: definition, on: pet.controller.currentScreen)
-            // スライドインを見せてから認証ダイアログを出す。
-            try? await Task.sleep(for: .seconds(Self.cutInLeadInSeconds))
-        }
-
-        let outcome = variant == .stamp ? await attendance.stamp() : await attendance.verify()
-
-        // 待っているあいだに畳まれていたら、結末の演出は出さない(カットインは畳んだ側が閉じている)。
-        guard generation == ceremonyGeneration else { return outcome }
-
-        let closing = AttendanceCeremonyScript.closing(outcome, variant: variant)
-        pet.controller.playOnce(closing.animation)
-        pet.controller.say(closing.kind)
-        guard useCutIn, let image = closing.cutInImage else { return outcome }
-        cutIn.swap(to: image, flash: outcome == .stamped)
-        try? await Task.sleep(for: .seconds(Self.cutInHoldSeconds))
-        cutIn.dismiss()
-        return outcome
     }
 
     public func startBreak() {
