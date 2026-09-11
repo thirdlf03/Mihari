@@ -117,7 +117,8 @@ public enum PermissionKind: String, Sendable, CaseIterable, Identifiable {
         case .screenRecording:
             return "許可後はアプリの再起動が必要"
         case .automation:
-            return "システム設定の Mihari の下で、Music か Spotify を ON にしてください。判定するにはそのアプリを起動した状態で再チェックが必要で、起動していないと許可済みでも灰色のままです。許可ダイアログはこの画面からは出せず、実際に止めようとした瞬間に出ます。"
+            return
+                "システム設定の Mihari の下で、Music か Spotify を ON にしてください。判定するにはそのアプリを起動した状態で再チェックが必要で、起動していないと許可済みでも灰色のままです。許可ダイアログはこの画面からは出せず、実際に止めようとした瞬間に出ます。"
         case .camera, .motion:
             return nil
         }

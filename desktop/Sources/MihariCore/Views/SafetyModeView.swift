@@ -585,7 +585,8 @@ public struct SafetyModeView: View {
             // ON に成功した機能ごとに、呼び側の権限要求・tunneld 登録を促す。
             // セットのままだと順序が不定で複数のダイアログが重なるので、
             // トグルの並び順(`allCases`)に揃えて「その場で 1 つずつ」に倒す。
-            for feature in SafetyFeature.allCases where newSettings.enabled.contains(feature) && !previous.enabled.contains(feature) {
+            for feature in SafetyFeature.allCases
+            where newSettings.enabled.contains(feature) && !previous.enabled.contains(feature) {
                 onFeatureEnabled(feature)
             }
             for feature in skipped {

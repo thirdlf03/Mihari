@@ -75,7 +75,9 @@ struct PermissionStateMapperTests {
 
         #expect(PermissionStateMapper.combinedAutomation(music: denied, spotify: denied).grant == .denied)
         #expect(PermissionStateMapper.combinedAutomation(music: denied, spotify: undetermined).grant == .undetermined)
-        #expect(PermissionStateMapper.combinedAutomation(music: undetermined, spotify: undetermined).grant == .undetermined)
+        #expect(
+            PermissionStateMapper.combinedAutomation(music: undetermined, spotify: undetermined).grant == .undetermined
+        )
     }
 
     @Test("まとめた詳細には Music と Spotify の両方が残る")

@@ -199,9 +199,12 @@ public struct OnboardingCourseView: View {
                     ForEach(OnboardingCourse.allCases) { course in
                         courseCard(for: course)
                     }
-                    Button("7つの機能を1つずつ選ぶ(微調整)…") { applySelection(); onFineTune() }
-                        .font(.callout)
-                        .padding(.top, 4)
+                    Button("7つの機能を1つずつ選ぶ(微調整)…") {
+                        applySelection()
+                        onFineTune()
+                    }
+                    .font(.callout)
+                    .padding(.top, 4)
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 8)
@@ -213,10 +216,13 @@ public struct OnboardingCourseView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button("次へ") { applySelection(); onNext() }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .disabled(selected == nil)
+                Button("次へ") {
+                    applySelection()
+                    onNext()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(selected == nil)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
