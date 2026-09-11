@@ -71,9 +71,13 @@ def test_announces_port_and_pid_on_stdout(daemon: Daemon) -> None:
 
 
 def test_health_responds(daemon: Daemon) -> None:
-    response = httpx.get(f"{daemon.base_url}/health", timeout=STARTUP_TIMEOUT)
+    response = httpx.get(f"{daemon.base_url}/health", headers=daemon.auth, timeout=STARTUP_TIMEOUT)
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+
+
+def test_health_needs_the_token(daemon: Daemon) -> None:
+    assert httpx.get(f"{daemon.base_url}/health", timeout=STARTUP_TIMEOUT).status_code == 401
 
 
 def test_listens_on_loopback_only(daemon: Daemon) -> None:
@@ -119,6 +123,60 @@ def test_exits_when_stdin_closes(daemon: Daemon) -> None:
         time.sleep(0.05)
 
     pytest.fail("stdin を閉じてもデーモンが終了しなかった")
+
+
+def test_reads_token_from_stdin() -> None:
+    """--token 無しで起動した場合、stdin の 1 行目からトークンを読む。
+
+    macOS アプリが実際に使う経路。argv に載せると ps から見えるため、
+    アプリはパイプの 1 行目で渡す。
+    """
+    process = subprocess.Popen(
+        [sys.executable, "-m", "device_bridge.cli", "serve"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert process.stdin is not None and process.stdout is not None
+        process.stdin.write(TOKEN + "\n")
+        process.stdin.flush()
+
+        line = process.stdout.readline()
+        if not line:
+            stderr = process.stderr.read() if process.stderr else ""
+            pytest.fail(f"デーモンがポートを通知しなかった: {stderr}")
+        port = json.loads(line)["port"]
+
+        # stdin で受け取ったトークンで認証が通ること。
+        response = httpx.get(
+            f"http://127.0.0.1:{port}/health",
+            headers={"X-Mihari-Token": TOKEN},
+            timeout=STARTUP_TIMEOUT,
+        )
+        assert response.status_code == 200
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=SHUTDOWN_TIMEOUT)
+            except subprocess.TimeoutExpired:  # pragma: no cover - 保険
+                process.kill()
+
+
+def test_fails_without_token_and_stdin_pipe() -> None:
+    """--token も stdin のパイプも無い起動は、待ち続けずにエラーで落ちる。"""
+    process = subprocess.Popen(
+        [sys.executable, "-m", "device_bridge.cli", "serve"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    _, stderr = process.communicate(timeout=STARTUP_TIMEOUT)
+    assert process.returncode == 1
+    assert "トークン" in stderr
 
 
 def _read_event(lines: Iterator[str]) -> dict[str, object]:

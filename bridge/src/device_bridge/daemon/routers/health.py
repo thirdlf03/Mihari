@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import os
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 
+from device_bridge.daemon.auth import verify_token
 from device_bridge.daemon.safety import get_safety
 
-router = APIRouter(tags=["health"])
+router = APIRouter(tags=["health"], dependencies=[Depends(verify_token)])
 
 
 @router.get("/health")

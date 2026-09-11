@@ -126,7 +126,7 @@ public struct SafetyModeView: View {
 
                 Spacer()
 
-                Button("全部 ON") { applyAllOn() }
+                Button("全部 ON(終了ロックを含む)") { applyAllOn() }
                     .controlSize(.small)
                     .buttonStyle(.bordered)
                     .disabled(safety.settings.enabled.count == SafetyFeature.total)
@@ -597,9 +597,18 @@ public struct SafetyModeView: View {
                     transient: false
                 )
             }
-        case .schedule:
-            // 予約帯が出て結果を示すので、ここでは何もしない。
-            break
+        case .schedule(let newSettings, _):
+            // 予約は最下部の帯に出すが、押したカードにも「いつ ON になるか」を残す。
+            // 帯だけだとトグルが戻っただけに見えて、予約の存在に気づけないことがある。
+            if let pending = newSettings.pendingChange,
+                pending.enabling.contains(affectedFeature)
+            {
+                showMessage(
+                    SafetyModeViewModel.pendingFeatureText(effectiveAt: pending.effectiveAt),
+                    on: affectedFeature,
+                    transient: false
+                )
+            }
         case .reject:
             if let message = SafetyModeViewModel.statusMessage(
                 for: decision,

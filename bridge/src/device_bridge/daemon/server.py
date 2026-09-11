@@ -2,7 +2,8 @@
 
 macOS アプリは次の手順でこのプロセスを扱う。
 
-1. トークンを生成して ``device-bridge serve --token <token>`` を子プロセスとして起動する
+1. トークンを生成して ``device-bridge serve`` を子プロセスとして起動し、
+   stdin の 1 行目にトークンを書き込む(argv に載せると ps から読めるため)
 2. 子プロセスの stdout に 1 行だけ出る ``{"port": ..., "pid": ...}`` を読む
 3. そのポートへ REST / SSE でつなぐ
 4. アプリ終了時に子プロセスを終了させる
@@ -17,6 +18,7 @@ import asyncio
 import json
 import logging
 import os
+import select
 import socket
 import stat
 import sys
@@ -90,6 +92,31 @@ def _bind_socket(config: DaemonConfig) -> socket.socket:
 def _announce(port: int) -> None:
     """アプリが読む 1 行を stdout に出す。以降 stdout には何も出さない。"""
     print(json.dumps({"port": port, "pid": os.getpid()}, ensure_ascii=False), flush=True)
+
+
+#: stdin の 1 行目にトークンが届くのを待つ上限(秒)。
+#: アプリ側のポート通知の待ち時間(60 秒)より手前で諦めて終了する。
+STDIN_TOKEN_TIMEOUT_SECONDS = 30.0
+
+
+def read_token_from_stdin() -> str:
+    """stdin の 1 行目から認証トークンを読む。
+
+    ``--token`` で渡すと argv が ``ps`` などから見えてしまい、同一 Mac 上の
+    別プロセスに読まれる。macOS アプリからの起動ではこちらを使う。
+    手元で動かすときやテストでは ``--token`` を渡してよい。
+
+    :raises ValueError: stdin がパイプでない、時間内に届かない、空行のとき。
+    """
+    if not stdin_is_parent_pipe():
+        raise ValueError("トークンが無い。--token で渡すか、stdin の 1 行目に書き込む")
+    ready, _, _ = select.select([sys.stdin], [], [], STDIN_TOKEN_TIMEOUT_SECONDS)
+    if not ready:
+        raise ValueError("stdin からトークンが届かなかった")
+    line = sys.stdin.readline().strip()
+    if not line:
+        raise ValueError("stdin の 1 行目が空")
+    return line
 
 
 def stdin_is_parent_pipe() -> bool:

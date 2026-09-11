@@ -30,8 +30,25 @@ public final class DaemonController: ObservableObject {
     /// 画面に残すイベントの件数。古いものから捨てる。
     public static let eventHistoryLimit = 50
 
-    /// 予期しない終了から再起動するまでの待ち時間。
+    /// 予期しない終了から再起動するまでの待ち時間の初期値。
+    /// 立て続けに落ちたときはここから倍々に延び、`restartMaxDelay` で頭打ちになる。
     public static let restartDelay: Duration = .seconds(2)
+
+    /// SSE を張り直すまでの待ち時間の初期値。
+    static let streamReconnectBaseDelay: Duration = .seconds(1)
+
+    /// SSE を張り直すまでの待ち時間の上限。接続自体に失敗し続けるときにここまで延びる。
+    static let streamReconnectMaxDelay: Duration = .seconds(30)
+
+    /// 予期しない終了から再起動するまでの待ち時間の上限。
+    static let restartMaxDelay: Duration = .seconds(60)
+
+    /// これだけ生きていたデーモンの終了は「たまたま落ちた」とみなし、
+    /// 再起動のバックオフを初期値に戻す。
+    static let stableUptimeResetThreshold: TimeInterval = 30
+
+    /// この回数だけ立て続けに落ちたら自動再起動を諦める。
+    static let maxRestartAttempts = 8
 
     @Published public private(set) var state: State = .stopped
     @Published public private(set) var isStreamConnected = false
@@ -44,6 +61,10 @@ public final class DaemonController: ObservableObject {
     private var streamTask: Task<Void, Never>?
     /// 明示的に止めたのか、落ちたのかを区別する。落ちたときだけ再起動する。
     private var stoppedIntentionally = false
+    /// 直近にデーモンが起き上がった時刻。落ちるまでの時間でバックオフをリセットするか決める。
+    private var lastStartAt: Date?
+    /// 立て続けに落ちた回数。再起動の待ち時間を伸ばし、上限回数で諦めるために数える。
+    private var restartAttempts = 0
 
     public init() {}
 
@@ -77,6 +98,7 @@ public final class DaemonController: ObservableObject {
             }
             client = DaemonClient(baseURL: baseURL, token: process.token)
             state = .running(port: announcement.port, pid: announcement.pid)
+            lastStartAt = Date()
             startStreaming()
         } catch {
             let message = (error as? DaemonError)?.errorDescription ?? error.localizedDescription
@@ -90,6 +112,8 @@ public final class DaemonController: ObservableObject {
     /// デーモンを止める。アプリ終了時にも必ず通る。
     public func stop() {
         stoppedIntentionally = true
+        // 手動で起動し直すときにバックオフを引きずらないよう、ここで畳む。
+        restartAttempts = 0
         streamTask?.cancel()
         streamTask = nil
         isStreamConnected = false
@@ -138,19 +162,41 @@ public final class DaemonController: ObservableObject {
         guard let client else { return }
         streamTask?.cancel()
         streamTask = Task { [weak self] in
-            await self?.consumeEvents(client: client)
+            guard let self else { return }
+            // 切断のたびに張り直す。接続自体に失敗し続けるときだけ倍々に待つ。
+            // デーモンごと死んだ場合は handleTermination がこの Task を cancel するので、
+            // ここでは無条件に再試行してよい。
+            var reconnectDelay = Self.streamReconnectBaseDelay
+            while !Task.isCancelled {
+                let didConnect = await consumeEvents(client: client)
+                isStreamConnected = false
+                guard !Task.isCancelled else { return }
+                reconnectDelay =
+                    didConnect
+                    ? Self.streamReconnectBaseDelay
+                    : min(reconnectDelay * 2, Self.streamReconnectMaxDelay)
+                Self.logger.error("event stream ended; reconnecting")
+                try? await Task.sleep(for: reconnectDelay)
+            }
         }
     }
 
-    private func consumeEvents(client: DaemonClient) async {
+    /// 1 回接続して、切れるまでイベントを消費する。
+    ///
+    /// - Returns: 一度でも接続できたか。`openEventStream` の失敗や非 2xx は `false`、
+    ///   接続したあとにストリームが終わった・例外で切れた場合は `true`。
+    ///   張り直しの待ち時間を決めるために使う。
+    private func consumeEvents(client: DaemonClient) async -> Bool {
+        var didConnect = false
         do {
             let (bytes, status) = try await client.openEventStream()
 
             guard (200..<300).contains(status) else {
                 lastError = DaemonError.requestFailed(status: status, message: "SSE に接続できない").errorDescription
-                return
+                return false
             }
 
+            didConnect = true
             isStreamConnected = true
             // つないだ直後に iPhone の状態を 1 回取りに行く。デーモン側の監視ループは
             // その GET で初めて起動するうえ、SSE には変化しか流れてこないので、
@@ -173,6 +219,7 @@ public final class DaemonController: ObservableObject {
             }
         }
         isStreamConnected = false
+        return didConnect
     }
 
     /// iPhone の状態を 1 回取りに行き、SSE で届いたものと同じ形にして流す。
@@ -246,8 +293,19 @@ public final class DaemonController: ObservableObject {
         client = nil
         state = .stopped
 
+        // 再起動の待ち時間は立て続けに落ちるほど倍々に延ばす(上限あり)。
+        // しばらく生きていたデーモンの終了は「たまたま落ちた」とみなして初期値に戻し、
+        // 上限回数を超えて落ち続けるなら自動再起動を諦める(手動の restart() で復帰できる)。
+        let uptime = lastStartAt.map { Date().timeIntervalSince($0) } ?? .infinity
+        restartAttempts = uptime < Self.stableUptimeResetThreshold ? restartAttempts + 1 : 0
+        guard restartAttempts <= Self.maxRestartAttempts else {
+            state = .failed(message: "繰り返し失敗したため自動再起動を止めた")
+            return
+        }
+        let delay = Duration.milliseconds(Int(min(2000 * pow(2.0, Double(restartAttempts)), 60_000)))
+
         Task { [weak self] in
-            try? await Task.sleep(for: Self.restartDelay)
+            try? await Task.sleep(for: delay)
             guard let self, !self.stoppedIntentionally else { return }
             await self.start()
         }

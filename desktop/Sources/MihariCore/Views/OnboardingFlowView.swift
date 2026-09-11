@@ -36,6 +36,16 @@ public struct OnboardingFlowView: View {
     private let onOpenDiscordSettings: (() -> Void)?
 
     @State private var step: Step = .welcome
+    /// 遷移の向き。戻るときは false にして、画面が逆から流れ込むようにする。
+    @State private var movingForward = true
+
+    /// 進むときは右から・戻るときは左から流れ込む遷移。
+    private var stepTransition: AnyTransition {
+        .asymmetric(
+            insertion: .move(edge: movingForward ? .trailing : .leading),
+            removal: .move(edge: movingForward ? .leading : .trailing)
+        )
+    }
 
     /// - Parameters:
     ///   - safety: セーフティートグル。コース選択とステップスキップ判定に使う。
@@ -61,31 +71,31 @@ public struct OnboardingFlowView: View {
             switch step {
             case .welcome:
                 OnboardingWelcomeView {
-                    step = .course
+                    go(to: .course)
                 }
-                .transition(.move(edge: .trailing))
+                .transition(stepTransition)
             case .course:
                 OnboardingCourseView(
                     safety: safety,
                     onNext: goForwardFromCourse,
-                    onFineTune: { step = .fineTune },
-                    onBack: { step = .welcome },
+                    onFineTune: { go(to: .fineTune) },
+                    onBack: { go(to: .welcome, forward: false) },
                     progressLabel: progressLabel
                 )
-                .transition(.move(edge: .trailing))
+                .transition(stepTransition)
             case .fineTune:
                 fineTuneStep
-                    .transition(.move(edge: .trailing))
+                    .transition(stepTransition)
             case .permissions:
                 permissionsStep
-                    .transition(.move(edge: .trailing))
+                    .transition(stepTransition)
             case .quitLockConfirm:
                 OnboardingQuitLockConfirmView(
-                    onBack: { step = .course },
-                    onConfirm: { step = .done },
+                    onBack: { go(to: .course, forward: false) },
+                    onConfirm: { go(to: .done) },
                     progressLabel: progressLabel
                 )
-                .transition(.move(edge: .trailing))
+                .transition(stepTransition)
             case .done:
                 OnboardingCompletionView(
                     enabledNames: SafetyFeature.allCases
@@ -97,7 +107,7 @@ public struct OnboardingFlowView: View {
                     onOpenDiscordSettings: onOpenDiscordSettings,
                     progressLabel: progressLabel
                 )
-                .transition(.move(edge: .trailing))
+                .transition(stepTransition)
             }
         }
         .animation(.easeInOut(duration: 0.2), value: step)
@@ -109,33 +119,39 @@ public struct OnboardingFlowView: View {
         }
     }
 
+    /// ステップを移す。戻る系の遷移では `forward: false` を渡して逆向きに流す。
+    private func go(to next: Step, forward: Bool = true) {
+        movingForward = forward
+        step = next
+    }
+
     /// コース選択の「次へ」。権限ステップが不要なら飛ばす。
     private func goForwardFromCourse() {
         permissions.apply(settings: safety.settings)
         if shouldSkipPermissionsStep {
             goForwardFromPermissions()
         } else {
-            step = .permissions
+            go(to: .permissions)
         }
     }
 
     /// 権限ステップの次。quitLock が ON なら確認を割り込ませる。
     private func goForwardFromPermissions() {
         if safety.isEnabled(.quitLock) {
-            step = .quitLockConfirm
+            go(to: .quitLockConfirm)
         } else {
-            step = .done
+            go(to: .done)
         }
     }
 
     /// 完了画面の「戻る」。来た道に戻す(権限を飛ばした人はコースへ)。
     private func goBackFromDone() {
         if safety.isEnabled(.quitLock) {
-            step = .quitLockConfirm
+            go(to: .quitLockConfirm, forward: false)
         } else if shouldSkipPermissionsStep {
-            step = .course
+            go(to: .course, forward: false)
         } else {
-            step = .permissions
+            go(to: .permissions, forward: false)
         }
     }
 
@@ -181,7 +197,7 @@ public struct OnboardingFlowView: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Button("戻る", systemImage: "chevron.left") {
-                    step = .course
+                    go(to: .course, forward: false)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -210,7 +226,7 @@ public struct OnboardingFlowView: View {
                         if shouldSkipPermissionsStep {
                             goForwardFromPermissions()
                         } else {
-                            step = .permissions
+                            go(to: .permissions)
                         }
                     }
                 ),
@@ -229,7 +245,7 @@ public struct OnboardingFlowView: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Button("戻る", systemImage: "chevron.left") {
-                    step = .course
+                    go(to: .course, forward: false)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
